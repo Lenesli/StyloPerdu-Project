@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Comment Test - Debug Version</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .debug-panel {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .debug-panel h3 {
+            margin-top: 0;
+            color: #3498db;
+        }
+        .endpoint-test {
+            background: #34495e;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .test-button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #c0392b;
+        }
+        .success { color: #2ecc71; }
+        .error { color: #e74c3c; }
+        .warning { color: #f39c12; }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .client {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .client h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea, button, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            background-color: white;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .message .timestamp {
+            font-size: 12px;
+            color: #666;
+        }
+        .message .content {
+            margin-top: 5px;
+            white-space: pre-wrap;
+        }
+        .message.error {
+            border-left-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        .debug {
+            background-color: #e2e3e5;
+            color: #383d41;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center; color: #333;">WebSocket Comment Test - Debug Version</h1>
+    
+    <!-- Debug Panel -->
+    <div class="debug-panel">
+        <h3>🔧 Debug Information & Server Tests</h3>
+        <div id="serverStatus">Testing server connectivity...</div>
+        
+        <div class="endpoint-test">
+            <strong>Available Test Endpoints:</strong><br>
+            <button class="test-button" onclick="testEndpoint('/api/test', 'GET')">Test /api/test</button>
+            <button class="test-button" onclick="testEndpoint('/api/comments', 'GET')">Test /api/comments</button>
+            <button class="test-button" onclick="testEndpoint('/api/items', 'GET')">Test /api/items</button>
+            <button class="test-button" onclick="testEndpoint('/ws/info', 'GET')">Test WebSocket Info</button>
+            <button class="test-button" onclick="testCORS()">Test CORS</button>
+        </div>
+        
+        <div>
+            <strong>API Base URL:</strong> 
+            <select id="apiBaseUrl" onchange="updateBaseUrl()">
+                <option value="http://localhost:8080">http://localhost:8080</option>
+                <option value="https://localhost:8080">https://localhost:8080</option>
+                <option value="http://127.0.0.1:8080">http://127.0.0.1:8080</option>
+            </select>
+        </div>
+        
+        <div id="testResults" style="margin-top: 10px;"></div>
+    </div>
+    
+    <div class="container">
+        <!-- Client 1 -->
+        <div class="client">
+            <h2>Client 1 (User A)</h2>
+            <div id="status1" class="status disconnected">Disconnected</div>
+            <div id="debug1" class="debug">Ready to connect...</div>
+            
+            <div class="form-group">
+                <label for="itemId1">Item ID:</label>
+                <input type="number" id="itemId1" value="1" placeholder="Enter item ID">
+            </div>
+            
+            <div class="form-group">
+                <label for="authToken1">Auth Token:</label>
+                <input type="text" id="authToken1" placeholder="Bearer token" 
+                       value="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhaG1lZC5qanNzc0BlbXNpLWVkdS5tYSIsImlhdCI6MTc1MDM0MjU2MCwiZXhwIjoxNzUwNDI4OTYwfQ.BUKMhZtkohcrHX102maMbYNu5aZEnVYOPZjR7TuqDkM">
+            </div>
+            
+            <div class="form-group">
+                <label for="endpoint1">Comment Endpoint:</label>
+                <select id="endpoint1">
+                    <option value="/api/test/comment/{itemId}">/api/test/comment/{itemId}</option>
+                    <option value="/api/comments/items/{itemId}">/api/comments/items/{itemId}</option>
+                    <option value="/api/comments/item/{itemId}">/api/comments/item/{itemId}</option>
+                </select>
+            </div>
+            
+            <button id="connect1" onclick="connect(1)">Connect</button>
+            <button id="disconnect1" onclick="disconnect(1)" disabled>Disconnect</button>
+            
+            <div class="form-group" style="margin-top: 20px;">
+                <label for="comment1">Comment:</label>
+                <textarea id="comment1" rows="3" placeholder="Type your comment here...">Hello from Client 1!</textarea>
+            </div>
+            
+            <button onclick="sendComment(1)" id="sendBtn1" disabled>Send Comment</button>
+            <button onclick="testDirectMessage(1)" id="testBtn1">Test Direct Message</button>
+            
+            <h3>Received Messages:</h3>
+            <div id="messages1" class="messages"></div>
+        </div>
+        
+        <!-- Client 2 -->
+        <div class="client">
+            <h2>Client 2 (User B)</h2>
+            <div id="status2" class="status disconnected">Disconnected</div>
+            <div id="debug2" class="debug">Ready to connect...</div>
+            
+            <div class="form-group">
+                <label for="itemId2">Item ID:</label>
+                <input type="number" id="itemId2" value="1" placeholder="Enter item ID">
+            </div>
+            
+            <div class="form-group">
+                <label for="authToken2">Auth Token:</label>
+                <input type="text" id="authToken2" placeholder="Bearer token"
+                       value="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhaG1lZC5qanNzQGVtc2ktZWR1Lm1hIiwiaWF0IjoxNzUwMzQxMTUxLCJleHAiOjE3NTA0Mjc1NTF9.Shiq2BTnQMUCSWeH9nDewJ3bmOukhf9wC1Ds9QRUN-Q">
+            </div>
+            
+            <div class="form-group">
+                <label for="endpoint2">Comment Endpoint:</label>
+                <select id="endpoint2">
+                    <option value="/api/test/comment/{itemId}">/api/test/comment/{itemId}</option>
+                    <option value="/api/comments/items/{itemId}">/api/comments/items/{itemId}</option>
+                    <option value="/api/comments/item/{itemId}">/api/comments/item/{itemId}</option>
+                </select>
+            </div>
+            
+            <button id="connect2" onclick="connect(2)">Connect</button>
+            <button id="disconnect2" onclick="disconnect(2)" disabled>Disconnect</button>
+            
+            <div class="form-group" style="margin-top: 20px;">
+                <label for="comment2">Comment:</label>
+                <textarea id="comment2" rows="3" placeholder="Type your comment here...">Hello from Client 2!</textarea>
+            </div>
+            
+            <button onclick="sendComment(2)" id="sendBtn2" disabled>Send Comment</button>
+            <button onclick="testDirectMessage(2)" id="testBtn2">Test Direct Message</button>
+            
+            <h3>Received Messages:</h3>
+            <div id="messages2" class="messages"></div>
+        </div>
+    </div>
+
+    <script>
+        let stompClients = {};
+        let connected = {};
+        let baseUrl = 'http://localhost:8080';
+        
+        function updateBaseUrl() {
+            baseUrl = document.getElementById('apiBaseUrl').value;
+            logToDebug(`Base URL updated to: ${baseUrl}`);
+        }
+        
+        function logToDebug(message) {
+            const results = document.getElementById('testResults');
+            const timestamp = new Date().toLocaleTimeString();
+            results.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            results.scrollTop = results.scrollHeight;
+            console.log(message);
+        }
+        
+        function debugLog(clientNum, message) {
+            const debugEl = document.getElementById(`debug${clientNum}`);
+            const timestamp = new Date().toLocaleTimeString();
+            debugEl.textContent = `[${timestamp}] ${message}`;
+            console.log(`Client ${clientNum}: ${message}`);
+        }
+        
+        async function testEndpoint(endpoint, method = 'GET') {
+            const url = `${baseUrl}${endpoint}`;
+            logToDebug(`<span class="warning">Testing ${method} ${url}...</span>`);
+            
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (response.ok) {
+                    const text = await response.text();
+                    logToDebug(`<span class="success">✓ ${endpoint} - Status: ${response.status}</span>`);
+                    if (text) {
+                        logToDebug(`Response: ${text.substring(0, 100)}...`);
+                    }
+                } else {
+                    logToDebug(`<span class="error">✗ ${endpoint} - Status: ${response.status}</span>`);
+                }
+            } catch (error) {
+                logToDebug(`<span class="error">✗ ${endpoint} - Error: ${error.message}</span>`);
+            }
+        }
+        
+        async function testCORS() {
+            logToDebug('<span class="warning">Testing CORS configuration...</span>');
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/test`, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Origin': window.location.origin,
+                        'Access-Control-Request-Method': 'POST',
+                        'Access-Control-Request-Headers': 'Content-Type,Authorization'
+                    }
+                });
+                
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                    'Access-Control-Allow-Headers': response.headers.get('Access-Control-Allow-Headers')
+                };
+                
+                logToDebug(`<span class="success">CORS Headers:</span>`);
+                Object.entries(corsHeaders).forEach(([key, value]) => {
+                    logToDebug(`  ${key}: ${value || 'Not set'}`);
+                });
+                
+            } catch (error) {
+                logToDebug(`<span class="error">CORS test failed: ${error.message}</span>`);
+            }
+        }
+        
+        function connect(clientNum) {
+            debugLog(clientNum, 'Attempting to connect...');
+            
+            const socket = new SockJS(`${baseUrl}/ws`);
+            const stompClient = Stomp.over(socket);
+            
+            stompClient.debug = function(str) {
+                console.log(`STOMP Client ${clientNum}:`, str);
+            };
+            
+            const authToken = document.getElementById(`authToken${clientNum}`).value;
+            const headers = {};
+            if (authToken) {
+                headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+                debugLog(clientNum, 'Using auth token for connection');
+            }
+            
+            stompClient.connect(headers, 
+                function (frame) {
+                    debugLog(clientNum, 'Connected successfully!');
+                    connected[clientNum] = true;
+                    stompClients[clientNum] = stompClient;
+                    updateStatus(clientNum, true);
+                    
+                    const itemId = document.getElementById(`itemId${clientNum}`).value;
+                    const commentSubscription = `/topic/items/${itemId}/comments`;
+                    debugLog(clientNum, `Subscribing to: ${commentSubscription}`);
+                    
+                    stompClient.subscribe(commentSubscription, function (message) {
+                        debugLog(clientNum, 'Received comment message');
+                        try {
+                            const data = JSON.parse(message.body);
+                            showMessage(clientNum, 'New Comment', data);
+                        } catch (e) {
+                            showMessage(clientNum, 'Raw Message', message.body);
+                        }
+                    });
+                    
+                    stompClient.subscribe('/topic/test', function (message) {
+                        debugLog(clientNum, 'Received test message');
+                        showMessage(clientNum, 'Broadcast', message.body);
+                    });
+                },
+                function (error) {
+                    debugLog(clientNum, `Connection failed: ${error}`);
+                    updateStatus(clientNum, false);
+                    showMessage(clientNum, 'Connection Error', error, true);
+                }
+            );
+        }
+        
+        function testDirectMessage(clientNum) {
+            if (!stompClients[clientNum]) {
+                alert('Please connect first');
+                return;
+            }
+            
+            const testMessage = {
+                content: `Test message from client ${clientNum}`,
+                timestamp: new Date().toISOString(),
+                userId: clientNum
+            };
+            
+            const itemId = document.getElementById(`itemId${clientNum}`).value;
+            
+            try {
+                stompClients[clientNum].send(
+                    `/app/comment/${itemId}`, 
+                    {}, 
+                    JSON.stringify(testMessage)
+                );
+                debugLog(clientNum, 'Sent direct WebSocket message');
+                showMessage(clientNum, 'Direct Send', testMessage);
+            } catch (error) {
+                debugLog(clientNum, `Direct message failed: ${error.message}`);
+                showMessage(clientNum, 'Direct Send Error', error.message, true);
+            }
+        }
+        
+        function disconnect(clientNum) {
+            if (stompClients[clientNum]) {
+                stompClients[clientNum].disconnect();
+                delete stompClients[clientNum];
+                connected[clientNum] = false;
+                updateStatus(clientNum, false);
+                debugLog(clientNum, 'Disconnected');
+            }
+        }
+        
+        async function sendComment(clientNum) {
+            const comment = document.getElementById(`comment${clientNum}`).value;
+            const itemId = document.getElementById(`itemId${clientNum}`).value;
+            const authToken = document.getElementById(`authToken${clientNum}`).value;
+            const endpointTemplate = document.getElementById(`endpoint${clientNum}`).value;
+            
+            if (!comment.trim()) {
+                alert('Please enter a comment');
+                return;
+            }
+            
+            if (!itemId) {
+                alert('Please enter an item ID');
+                return;
+            }
+            
+            const endpoint = endpointTemplate.replace('{itemId}', itemId);
+            const url = `${baseUrl}${endpoint}`;
+            
+            debugLog(clientNum, `Sending to: ${url}`);
+            
+            const commentData = {
+                content: comment
+            };
+            
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            if (authToken) {
+                headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+            }
+            
+            try {
+                debugLog(clientNum, 'Making fetch request...');
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(commentData),
+                    mode: 'cors'
+                });
+                
+                debugLog(clientNum, `Response status: ${response.status}`);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                debugLog(clientNum, 'Comment sent successfully');
+                document.getElementById(`comment${clientNum}`).value = '';
+                showMessage(clientNum, 'Sent Successfully', data);
+                
+            } catch (error) {
+                debugLog(clientNum, `Error: ${error.message}`);
+                showMessage(clientNum, 'Send Error', error.message, true);
+                
+                // Additional error details
+                if (error.message.includes('Failed to fetch')) {
+                    showMessage(clientNum, 'Debug Info', 'This usually means CORS is not configured or the server is not running', true);
+                }
+            }
+        }
+        
+        function updateStatus(clientNum, isConnected) {
+            const statusEl = document.getElementById(`status${clientNum}`);
+            const connectBtn = document.getElementById(`connect${clientNum}`);
+            const disconnectBtn = document.getElementById(`disconnect${clientNum}`);
+            const sendBtn = document.getElementById(`sendBtn${clientNum}`);
+            
+            if (isConnected) {
+                statusEl.textContent = 'Connected';
+                statusEl.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+            }
+        }
+        
+        function showMessage(clientNum, type, content, isError = false) {
+            const messagesEl = document.getElementById(`messages${clientNum}`);
+            const messageEl = document.createElement('div');
+            messageEl.className = isError ? 'message error' : 'message';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            let displayContent = content;
+            
+            if (typeof content === 'object') {
+                displayContent = JSON.stringify(content, null, 2);
+            }
+            
+            messageEl.innerHTML = `
+                <div class="timestamp">[${timestamp}] ${type}</div>
+                <div class="content">${displayContent}</div>
+            `;
+            
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        
+        // Auto-test server on page load
+        window.onload = async function() {
+            logToDebug('🚀 Starting diagnostic tests...');
+            
+            // Test basic connectivity first
+            logToDebug('Testing if server is running...');
+            await testEndpoint('/api/test', 'GET');
+            await testEndpoint('/api/test/health', 'GET');
+            
+            // Test comment endpoints
+            await testEndpoint('/api/comments', 'GET');
+            await testEndpoint('/api/test/comment/1', 'POST');
+            
+            // Test CORS
+            await testCORS();
+            
+            // Test WebSocket endpoint
+            await testEndpoint('/ws/info', 'GET');
+            
+            logToDebug('📋 Diagnostic complete. Check results above.');
+            logToDebug('💡 If all tests fail, make sure your Spring Boot server is running with: mvn spring-boot:run');
+        };
+        
+        window.onbeforeunload = function() {
+            Object.keys(stompClients).forEach(clientNum => {
+                disconnect(clientNum);
+            });
+        };
+    </script>
+</body>
+</html>
